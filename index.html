@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="es-AR" style="background:#f0f9ff;color:#0c1a2e;">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Forzar modo claro en Android Chrome y Edge -->
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#0ea5e9" />
+  <meta name="description" content="Sistema de gestión de stock y ventas" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="ConVos Stock" />
+
+  <title>ConVos Stock</title>
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Bloqueo inline de modo oscuro — se aplica antes de que cargue el CSS -->
+  <style>
+    html, body { background-color: #f0f9ff !important; color: #0c1a2e !important; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header id="header">
+    <h1>📦 ConVos</h1>
+    <div id="header-acciones">
+      <span id="estado-sync">Online</span>
+      <button class="btn-icono" id="btn-sincronizar" title="Sincronizar" style="position:relative;">
+        🔄
+        <span id="badge-cola" style="display:none;position:absolute;top:2px;right:2px;background:#dc2626;color:#fff;font-size:.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+      </button>
+      <button class="btn-icono" id="btn-ajustes" title="Ajustes y Google Sheets">⚙</button>
+    </div>
+  </header>
+
+  <!-- ── Búsqueda global ── -->
+  <div id="busqueda-global">
+    <div class="bg-barra">
+      <span>🔍</span>
+      <input type="search" id="bg-input" placeholder="Buscar producto o venta..." autocomplete="off" />
+      <button id="bg-limpiar" type="button" aria-label="Limpiar" style="display:none;">✕</button>
+    </div>
+    <div id="bg-resultados" style="display:none;"></div>
+  </div>
+
+  <!-- ── Indicador de sincronización (pull-to-refresh) ── -->
+  <div id="ptr-indicador"><span class="ptr-spinner"></span><span id="ptr-texto">Soltá para sincronizar</span></div>
+
+  <!-- ── Contenido principal ── -->
+  <main id="contenido">
+
+    <!-- VISTA: Inicio -->
+    <section id="vista-inicio" class="vista activa">
+
+      <!-- Accesos rápidos -->
+      <div class="accesos-rapidos">
+        <button class="acceso" id="acc-nueva-venta"><span class="acceso-ico">🛒</span>Nueva venta</button>
+        <button class="acceso" id="acc-ver-stock"><span class="acceso-ico">📦</span>Ver stock</button>
+        <button class="acceso" id="acc-importar"><span class="acceso-ico">📥</span>Importar Excel</button>
+      </div>
+
+      <div class="grilla-metricas">
+        <div class="metrica destacada">
+          <div class="metrica-valor" id="metro-productos">—</div>
+          <div class="metrica-label">Productos</div>
+        </div>
+        <div class="metrica positiva">
+          <div class="metrica-valor" id="metro-ventas-hoy">—</div>
+          <div class="metrica-label">Ventas hoy</div>
+        </div>
+        <div class="metrica">
+          <div class="metrica-valor" id="metro-total-hoy">—</div>
+          <div class="metrica-label">Total hoy $</div>
+        </div>
+        <div class="metrica alerta">
+          <div class="metrica-valor" id="metro-stock-bajo">—</div>
+          <div class="metrica-label">Stock bajo</div>
+        </div>
+        <div class="metrica deuda">
+          <div class="metrica-valor" id="metro-por-cobrar">$0</div>
+          <div class="metrica-label">Por cobrar</div>
+        </div>
+        <div class="metrica entrega">
+          <div class="metrica-valor" id="metro-entregas-pend">—</div>
+          <div class="metrica-label">Entregas pend.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-titulo">Últimas ventas</div>
+        <ul class="lista-items" id="lista-ultimas-ventas">
+          <li>
+            <div class="estado-vacio">
+              <div class="icono-grande">🛒</div>
+              <p>Todavía no hay ventas registradas.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-titulo">Productos con stock bajo</div>
+        <ul class="lista-items" id="lista-stock-bajo">
+          <li>
+            <div class="estado-vacio">
+              <div class="icono-grande">✅</div>
+              <p>Todo el stock está en orden.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Indicador de última sincronización -->
+      <div class="sync-indicador" id="inicio-sync-indicador">
+        <span class="sync-punto" id="inicio-sync-punto"></span>
+        <span>Última sincronización: <strong id="inicio-ultima-sync">Nunca</strong></span>
+        <button class="sync-mini-btn" id="inicio-sync-btn">Sincronizar ahora</button>
+      </div>
+    </section>
+
+    <!-- VISTA: Stock -->
+    <section id="vista-stock" class="vista">
+
+      <!-- ── Sub-vista: Lista ── -->
+      <div id="stock-lista" class="stock-sv activa">
+        <div class="barra-busqueda">
+          <span>🔍</span>
+          <input type="search" id="buscar-producto" placeholder="Código, nombre, marca..." autocomplete="off" />
+        </div>
+
+        <div class="filtros-stock">
+          <select id="filtro-familia"><option value="">Familia</option></select>
+          <select id="filtro-marca"><option value="">Marca</option></select>
+          <select id="filtro-proveedor"><option value="">Proveedor</option></select>
+        </div>
+
+        <button class="btn-diferencias" id="btn-ver-diferencias">⚠ Ver diferencias de inventario</button>
+
+        <div class="card">
+          <div class="card-titulo-flex">
+            <span>Productos</span>
+            <span class="badge badge-azul" id="contador-productos">0</span>
+          </div>
+          <ul class="lista-items" id="lista-productos">
+            <li><div class="estado-vacio">
+              <span class="icono-grande">📦</span>
+              <p>No hay productos. Importá desde Importar o creá uno con +.</p>
+            </div></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ── Sub-vista: Detalle / Edición ── -->
+      <div id="stock-detalle" class="stock-sv">
+        <div class="sv-header">
+          <button class="btn-sv-volver" id="btn-volver-lista">‹ Stock</button>
+          <span class="sv-titulo" id="titulo-detalle">Nuevo producto</span>
+          <button class="btn-sv-accion peligro" id="btn-eliminar-producto" style="display:none">🗑</button>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Identificación</div>
+          <div class="campo">
+            <label>Código corto</label>
+            <input type="text" id="d-codigoCorto" placeholder="CIU-4730-T3-RJ" autocapitalize="characters" />
+          </div>
+          <div class="campo">
+            <label>Descripción completa</label>
+            <input type="text" id="d-codigoCompleto" placeholder="Medias - Ciudadela - Art.4730 - T3 - Rojo" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Características</div>
+          <div class="grilla-2col">
+            <div class="campo"><label>Familia</label>
+              <input type="text" id="d-familia" placeholder="Medias" /></div>
+            <div class="campo"><label>Marca</label>
+              <input type="text" id="d-marca" placeholder="Ciudadela" /></div>
+            <div class="campo"><label>Artículo</label>
+              <input type="text" id="d-articulo" placeholder="4730" /></div>
+            <div class="campo"><label>Talle</label>
+              <input type="text" id="d-talle" placeholder="T3" /></div>
+            <div class="campo"><label>Color</label>
+              <input type="text" id="d-color" placeholder="Rojo" /></div>
+            <div class="campo"><label>Material</label>
+              <input type="text" id="d-material" placeholder="Algodón" /></div>
+          </div>
+          <div class="campo">
+            <label>Característica</label>
+            <input type="text" id="d-caracteristica" placeholder="Deportiva, escolar..." />
+          </div>
+          <div class="campo">
+            <label>Proveedor</label>
+            <input type="text" id="d-proveedor" placeholder="Nombre del proveedor" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Precios</div>
+          <div class="grilla-2col">
+            <div class="campo"><label>Costo neto $</label>
+              <input type="number" id="d-costo" placeholder="0.00" step="0.01" min="0" inputmode="decimal" /></div>
+            <div class="campo"><label>Costo + IVA $</label>
+              <input type="number" id="d-costoConIva" placeholder="0.00" step="0.01" min="0" inputmode="decimal" /></div>
+            <div class="campo"><label>Precio venta $</label>
+              <input type="number" id="d-precio" placeholder="0.00" step="0.01" min="0" inputmode="decimal" /></div>
+            <div class="campo"><label>Act. costo</label>
+              <input type="date" id="d-fechaActualizacionCosto" /></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Stock</div>
+          <div class="campo">
+            <label>Stock inicial</label>
+            <input type="number" id="d-stockInicial" placeholder="0" min="0" inputmode="numeric" />
+          </div>
+          <div id="resumen-stock"></div>
+          <button class="btn btn-naranja" id="btn-ir-movimiento" style="display:none;">
+            📋 Registrar movimiento
+          </button>
+        </div>
+
+        <button class="btn btn-primario" id="btn-guardar-producto">💾 Guardar producto</button>
+        <div style="height:24px;"></div>
+      </div>
+
+      <!-- ── Sub-vista: Movimiento ── -->
+      <div id="stock-movimiento" class="stock-sv">
+        <div class="sv-header">
+          <button class="btn-sv-volver" id="btn-volver-a-detalle">‹ Producto</button>
+          <span class="sv-titulo">Registrar movimiento</span>
+          <span style="min-width:36px;"></span>
+        </div>
+
+        <div class="card">
+          <div id="mov-producto-info"></div>
+
+          <div class="campo">
+            <label>Tipo de movimiento</label>
+            <select id="mov-tipo">
+              <option value="pedido">📦 Pedido de compra</option>
+              <option value="ajuste">✏ Ajuste de inventario</option>
+              <option value="devolucion">↩ Devolución</option>
+              <option value="conteo">🔢 Conteo físico</option>
+            </select>
+          </div>
+
+          <div class="campo">
+            <label id="label-mov-cantidad">Cantidad (unidades)</label>
+            <input type="number" id="mov-cantidad" placeholder="0" min="0" inputmode="numeric" />
+          </div>
+
+          <div class="campo">
+            <label>Fecha</label>
+            <input type="date" id="mov-fecha" />
+          </div>
+
+          <div class="campo">
+            <label>Observaciones</label>
+            <textarea id="mov-observaciones" rows="2" placeholder="Opcional..."></textarea>
+          </div>
+
+          <div class="campo" id="campo-mov-explicacion" style="display:none;">
+            <label>Explicación de diferencia</label>
+            <textarea id="mov-explicacion" rows="2"
+              placeholder="Motivo de la diferencia entre el conteo y el stock disponible..."></textarea>
+          </div>
+
+          <div class="info-movimiento" id="info-movimiento"></div>
+
+          <button class="btn btn-acento" id="btn-confirmar-movimiento">✔ Confirmar movimiento</button>
+        </div>
+      </div>
+
+      <!-- ── Sub-vista: Diferencias de inventario ── -->
+      <div id="stock-diferencias" class="stock-sv">
+        <div class="sv-header">
+          <button class="btn-sv-volver" id="btn-volver-desde-diferencias">‹ Stock</button>
+          <span class="sv-titulo">Diferencias de inventario</span>
+          <span style="min-width:36px;"></span>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Productos con diferencia ≠ 0</div>
+          <ul class="lista-items" id="lista-diferencias">
+            <li><div class="estado-vacio">
+              <span class="icono-grande">✅</span>
+              <p>No hay diferencias registradas.</p>
+            </div></li>
+          </ul>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- VISTA: Ventas -->
+    <section id="vista-ventas" class="vista">
+
+      <!-- Toggle de sub-vistas -->
+      <div class="ventas-tabs">
+        <button class="ventas-tab activo" id="ventas-tab-nueva">＋ Nueva venta</button>
+        <button class="ventas-tab" id="ventas-tab-lista">📋 Ventas</button>
+      </div>
+
+      <!-- ── Sub-vista: NUEVA VENTA ── -->
+      <div id="ventas-nueva" class="ventas-sv activa">
+
+        <!-- Dashboard resumen -->
+        <div class="dash-ventas">
+          <div class="dash-item"><span class="dash-val" id="vd-vendido">$0</span><span class="dash-cap">Vendido</span></div>
+          <div class="dash-item ok"><span class="dash-val" id="vd-cobrado">$0</span><span class="dash-cap">Cobrado</span></div>
+          <div class="dash-item deuda"><span class="dash-val" id="vd-por-cobrar">$0</span><span class="dash-cap">Por cobrar</span></div>
+          <div class="dash-item gan"><span class="dash-val" id="vd-ganancia">$0</span><span class="dash-cap">Ganancia</span></div>
+          <div class="dash-item ent"><span class="dash-val" id="vd-pend-entrega">0</span><span class="dash-cap">Sin entregar</span></div>
+        </div>
+
+        <!-- Producto -->
+        <div class="card">
+          <div class="card-titulo">Producto</div>
+          <div class="campo">
+            <input type="search" id="venta-buscar-producto" placeholder="Buscar por código corto o descripción..." autocomplete="off" />
+            <div id="venta-sugerencias" class="sugerencias-box" style="display:none;"></div>
+          </div>
+          <div id="venta-info-producto" class="venta-info" style="display:none;"></div>
+          <div id="venta-alerta-stock" class="alerta-stock" style="display:none;"></div>
+        </div>
+
+        <!-- Datos de la venta -->
+        <div class="card">
+          <div class="card-titulo">Datos de la venta</div>
+
+          <div class="campo"><label for="venta-cliente">Nombre del cliente</label>
+            <input type="text" id="venta-cliente" placeholder="Nombre y apellido" /></div>
+
+          <div class="grilla-2col">
+            <div class="campo"><label for="venta-cantidad">Cantidad</label>
+              <input type="number" id="venta-cantidad" value="1" min="1" inputmode="numeric" /></div>
+            <div class="campo"><label for="venta-precio">Precio unit. $</label>
+              <input type="number" id="venta-precio" placeholder="0" min="0" step="0.01" inputmode="decimal" /></div>
+          </div>
+
+          <div class="grilla-2col">
+            <div class="campo"><label for="venta-descuento">Descuento</label>
+              <input type="number" id="venta-descuento" value="0" min="0" step="0.01" inputmode="decimal" /></div>
+            <div class="campo"><label for="venta-descuento-tipo">Tipo</label>
+              <select id="venta-descuento-tipo">
+                <option value="monto">$ monto</option>
+                <option value="porcentaje">% porcentaje</option>
+              </select></div>
+          </div>
+
+          <div class="campo"><label for="venta-tipo-cobro">Tipo de cobro</label>
+            <select id="venta-tipo-cobro">
+              <option value="efectivo">Efectivo</option>
+              <option value="mercadopago">Mercado Pago</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="cuenta_corriente">Cuenta corriente</option>
+            </select></div>
+
+          <div class="grilla-2col">
+            <label class="check-fila"><input type="checkbox" id="venta-cobrado" /><span>¿Cobrado?</span></label>
+            <label class="check-fila"><input type="checkbox" id="venta-entregado" /><span>¿Entregado?</span></label>
+          </div>
+
+          <div class="campo" id="campo-fecha-cobro" style="display:none;">
+            <label for="venta-fecha-cobro">Fecha de cobro</label>
+            <input type="date" id="venta-fecha-cobro" />
+          </div>
+
+          <div class="campo"><label for="venta-observaciones">Observaciones</label>
+            <input type="text" id="venta-observaciones" placeholder="Opcional" /></div>
+        </div>
+
+        <!-- Resumen en tiempo real -->
+        <div class="card resumen-venta">
+          <div class="rv-fila"><span>Descuento aplicado</span><span id="venta-resumen-descuento">$0</span></div>
+          <div class="rv-fila total"><span>Precio final</span><strong id="venta-resumen-monto">$0</strong></div>
+          <div class="rv-fila"><span>Ganancia</span><span id="venta-resumen-ganancia">$0</span></div>
+        </div>
+
+        <button class="btn btn-acento" id="btn-registrar-venta">✔ Registrar venta</button>
+        <div style="height:24px;"></div>
+      </div>
+
+      <!-- ── Sub-vista: LISTA DE VENTAS ── -->
+      <div id="ventas-lista" class="ventas-sv">
+        <div class="ventas-filtros">
+          <button class="vfiltro activo" id="vf-todas">Todas</button>
+          <button class="vfiltro" id="vf-cobrar">Por cobrar</button>
+          <button class="vfiltro" id="vf-entregar">Por entregar</button>
+        </div>
+        <ul class="lista-items" id="lista-ventas">
+          <li><div class="estado-vacio">
+            <span class="icono-grande">🛒</span><p>Todavía no hay ventas.</p>
+          </div></li>
+        </ul>
+        <div style="height:24px;"></div>
+      </div>
+
+      <!-- ── Sub-vista: DETALLE / EDITAR ── -->
+      <div id="ventas-detalle" class="ventas-sv">
+        <div class="sv-header">
+          <button class="btn-sv-volver" id="btn-volver-ventas">‹ Ventas</button>
+          <span class="sv-titulo">Detalle de venta</span>
+          <span></span>
+        </div>
+
+        <div class="card">
+          <div id="venta-detalle-cuerpo"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Cobro</div>
+          <p class="text-suave" id="vdet-saldo" style="margin-bottom:8px;"></p>
+          <div class="campo"><label for="vdet-tipo-cobro">Tipo de cobro</label>
+            <select id="vdet-tipo-cobro">
+              <option value="efectivo">Efectivo</option>
+              <option value="mercadopago">Mercado Pago</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="cuenta_corriente">Cuenta corriente</option>
+            </select></div>
+          <label class="check-fila"><input type="checkbox" id="vdet-cobrado" /><span>Marcar como cobrada por completo</span></label>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Entrega</div>
+          <label class="check-fila"><input type="checkbox" id="vdet-entregado" /><span>Marcar como entregada</span></label>
+        </div>
+
+        <button class="btn btn-primario" id="btn-guardar-detalle">💾 Guardar cambios</button>
+        <div style="height:24px;"></div>
+      </div>
+
+    </section>
+
+    <!-- VISTA: Cobranzas -->
+    <section id="vista-cobranzas" class="vista">
+
+      <!-- Sub-vista: lista de clientes con deuda -->
+      <div id="cobranzas-lista" class="cobranzas-sv activa">
+        <div class="resumen-cobrar">
+          <span class="resumen-cobrar-label">Total por cobrar</span>
+          <span class="resumen-cobrar-monto" id="cobranzas-total-cobrar">$0</span>
+        </div>
+        <div class="card">
+          <div class="card-titulo">Clientes con saldo</div>
+          <ul class="lista-items" id="cobranzas-clientes">
+            <li><div class="estado-vacio">
+              <span class="icono-grande">✅</span><p>No hay deudas pendientes.</p>
+            </div></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Sub-vista: detalle de cuenta del cliente -->
+      <div id="cobranzas-detalle" class="cobranzas-sv">
+        <div class="sv-header">
+          <button class="btn-sv-volver" id="btn-volver-cobranzas">‹ Cobranzas</button>
+          <span class="sv-titulo" id="cobranzas-cliente-nombre">Cliente</span>
+          <span style="min-width:36px;"></span>
+        </div>
+
+        <div class="resumen-cobrar">
+          <span class="resumen-cobrar-label">Saldo del cliente</span>
+          <span class="resumen-cobrar-monto" id="cobranzas-cliente-saldo">$0</span>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Ventas sin saldar <small class="text-suave">(tocá una para cobrar)</small></div>
+          <ul class="lista-items" id="cobranzas-ventas-cliente"></ul>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Registrar pago</div>
+          <div class="grilla-2col">
+            <div class="campo"><label>Monto $</label>
+              <input type="number" id="pago-monto" placeholder="0" min="0" step="0.01" inputmode="decimal" /></div>
+            <div class="campo"><label>Medio</label>
+              <select id="pago-medio">
+                <option>Efectivo</option>
+                <option>Transferencia</option>
+                <option>Tarjeta</option>
+                <option>Cheque</option>
+                <option>Otro</option>
+              </select></div>
+          </div>
+          <button class="btn btn-acento" id="btn-registrar-pago">💰 Registrar pago</button>
+        </div>
+
+        <div class="card">
+          <div class="card-titulo">Historial de pagos</div>
+          <ul class="lista-items" id="cobranzas-historial"></ul>
+        </div>
+        <div style="height:24px;"></div>
+      </div>
+    </section>
+
+    <!-- VISTA: Entregas -->
+    <section id="vista-entregas" class="vista">
+      <div class="entregas-tabs">
+        <button class="entregas-tab activo" id="entregas-tab-pendientes">
+          Pendientes <span class="entregas-badge" id="entregas-badge-pend">0</span>
+        </button>
+        <button class="entregas-tab" id="entregas-tab-entregadas">Entregadas</button>
+      </div>
+      <div class="card">
+        <ul class="lista-items" id="entregas-lista">
+          <li><div class="estado-vacio">
+            <span class="icono-grande">🚚</span><p>No hay entregas pendientes.</p>
+          </div></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- VISTA: Importar -->
+    <section id="vista-importar" class="vista">
+      <div class="card">
+        <div class="card-titulo">Google Sheets</div>
+        <p class="text-suave" style="margin-bottom:14px;">
+          Sincronizá el stock y las ventas con tu planilla de Google Sheets en tiempo real.
+        </p>
+        <button class="btn btn-primario" id="btn-abrir-config">⚙ Configurar conexión</button>
+        <button class="btn btn-gris mt-8" id="btn-importar-ahora">⬇ Importar stock desde Sheets</button>
+        <button class="btn btn-gris mt-8" id="btn-backup-ahora">☁ Hacer backup completo ahora</button>
+      </div>
+
+      <div class="card">
+        <div class="card-titulo">Estado de conexión</div>
+        <ul class="lista-items">
+          <li>
+            <span class="item-nombre">Apps Script</span>
+            <span class="badge badge-stock-cero" id="estado-planilla">No configurado</span>
+          </li>
+          <li>
+            <span class="item-nombre">Última sincronización</span>
+            <span class="item-detalle" id="ultima-sync">Nunca</span>
+          </li>
+          <li>
+            <span class="item-nombre">Cambios pendientes offline</span>
+            <span class="item-detalle" id="cola-pendientes">0</span>
+          </li>
+          <li>
+            <span class="item-nombre">Hojas disponibles</span>
+            <span class="item-detalle">CLIENTES · STOCK · VENTAS · COBRANZAS · ENTREGAS</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-titulo">Importar desde Excel</div>
+        <p class="text-suave" style="margin-bottom:14px;">
+          Subí tu archivo <strong>.xlsx</strong> para cargar el maestro de stock o el histórico de ventas.
+        </p>
+
+        <label class="campo">
+          <span>1 · Archivo Excel</span>
+          <input type="file" id="archivo-excel" accept=".xlsx,.xls" />
+        </label>
+
+        <label class="campo">
+          <span>2 · ¿Qué hoja importar?</span>
+          <select id="select-hoja-excel">
+            <option value="stock">Maestro de Stock</option>
+            <option value="ventas">Ventas</option>
+          </select>
+        </label>
+
+        <div id="preview-excel"></div>
+
+        <button class="btn btn-primario mt-8" id="btn-importar-excel" disabled>⬆ Importar</button>
+
+        <div id="resumen-import" style="display:none;"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-titulo">Exportar a Excel</div>
+        <p class="text-suave" style="margin-bottom:14px;">
+          Descargá un <strong>.xlsx</strong> con el maestro de stock actualizado y las ventas del período.
+        </p>
+        <button class="btn btn-acento" id="btn-exportar-excel">⬇ Exportar a Excel</button>
+      </div>
+
+      <div class="card">
+        <div class="card-titulo">Datos locales</div>
+        <button class="btn btn-peligro" id="btn-limpiar-datos">🗑 Limpiar todos los datos locales</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── FAB: agregar producto (solo visible en pestaña Stock) ── -->
+  <button class="fab" id="fab-agregar" style="display:none;" title="Agregar producto">+</button>
+
+  <!-- ── Overlay: configuración inicial ── -->
+  <div id="overlay-config" class="overlay-config">
+    <div class="overlay-caja">
+
+      <div class="overlay-logo">📦</div>
+      <h2>Conectar con Google Sheets</h2>
+      <p class="overlay-desc">Para sincronizar el stock y las ventas necesitás configurar tu planilla una sola vez.</p>
+
+      <div class="pasos-config">
+        <div class="paso-config">
+          <span class="paso-num">1</span>
+          <p>Abrí tu Google Sheet. Copiá el <strong>ID</strong> de la URL:<br>
+            <code>docs.google.com/spreadsheets/d/<mark>ESTE_ES_EL_ID</mark>/edit</code>
+          </p>
+        </div>
+        <div class="paso-config">
+          <span class="paso-num">2</span>
+          <p>Desde el Sheet: <strong>Extensiones → Apps Script</strong>. Pegá el código de <code>apps-script.gs</code>, guardá y publicalo como <strong>Aplicación web</strong> (acceso: Cualquier persona). Copiá la URL.</p>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label for="config-spreadsheet-id">ID de la planilla (Spreadsheet ID)</label>
+        <input type="text" id="config-spreadsheet-id"
+               placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+      </div>
+
+      <div class="campo">
+        <label for="config-apps-script-url">URL del Apps Script (Web App URL)</label>
+        <input type="text" id="config-apps-script-url"
+               placeholder="https://script.google.com/macros/s/..." />
+      </div>
+
+      <button class="btn btn-primario" id="btn-guardar-config">🔗 Guardar y conectar</button>
+      <button class="btn btn-gris" id="btn-saltar-config" style="margin-top:10px;">Saltar por ahora (modo offline)</button>
+    </div>
+  </div>
+
+  <!-- ── Bottom Tab Bar ── -->
+  <nav id="tab-bar">
+    <button class="tab activo" data-vista="inicio">
+      <span class="tab-icono">🏠</span>
+      Inicio
+    </button>
+    <button class="tab" data-vista="stock">
+      <span class="tab-icono">📦</span>
+      Stock
+    </button>
+    <button class="tab" data-vista="ventas">
+      <span class="tab-icono">🛒</span>
+      Ventas
+    </button>
+    <button class="tab" data-vista="cobranzas">
+      <span class="tab-icono">💰</span>
+      Cobranzas
+    </button>
+    <button class="tab" data-vista="entregas">
+      <span class="tab-icono">🚚</span>
+      Entregas
+    </button>
+  </nav>
+
+</div>
+
+<!-- ── Toast ── -->
+<div id="toast"></div>
+
+<!-- ── Spinner de carga global ── -->
+<div id="spinner-overlay" style="display:none;">
+  <div class="spinner-caja">
+    <div class="spinner-anillo"></div>
+    <span id="spinner-texto">Sincronizando...</span>
+  </div>
+</div>
+
+<!-- ── Scripts ── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="modules/sync.js"></script>
+<script src="modules/clientes.js"></script>
+<script src="modules/stock.js"></script>
+<script src="modules/ventas.js"></script>
+<script src="modules/cobranzas.js"></script>
+<script src="modules/entregas.js"></script>
+<script src="modules/importar.js"></script>
+<script src="modules/extras.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
