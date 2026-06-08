@@ -1,4 +1,4 @@
-const CACHE_NAME = 'convos-stock-v24';
+const CACHE_NAME = 'convos-stock-v25';
 const ARCHIVOS_CACHE = [
   './',
   './index.html',
