@@ -1765,3 +1765,14 @@ html, body {
   padding: 8px 12px; font-size: .82rem; font-weight: 700; cursor: pointer; min-height: 36px;
 }
 .btn-preparar:disabled { opacity: .6; }
+
+/* ── Tirar para actualizar ── */
+#ptr-indicador {
+  position: fixed;
+  top: 62px; left: 50%; transform: translateX(-50%);
+  background: #e0f2fe; color: #0369a1;
+  padding: 6px 16px; border-radius: 16px;
+  font-size: .8rem; font-weight: 700;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+  z-index: 50; box-shadow: 0 2px 8px rgba(2,32,71,.15);
+}

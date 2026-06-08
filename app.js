@@ -58,17 +58,39 @@ window.addEventListener('online', actualizarEstadoConexion);
 window.addEventListener('offline', actualizarEstadoConexion);
 actualizarEstadoConexion();
 
-// ── Auto-actualizar al abrir o volver a la app ──────────────────
-// Cada vez que la app pasa a primer plano (abrir, cambiar de app y volver),
-// vuelve a leer la planilla para mostrar siempre datos frescos.
-function _refrescarSiCorresponde() {
-  if (document.visibilityState !== 'visible') return;
-  if (!window.Sync?.estaConfigurado?.() || !navigator.onLine) return;
-  const u = window.Datos?.ultimaActualizacion?.();
-  if (!u || (Date.now() - u.getTime()) > 8000) window.Datos?.refrescar?.();
-}
-document.addEventListener('visibilitychange', _refrescarSiCorresponde);
-window.addEventListener('focus', _refrescarSiCorresponde);
+// ── Tirar hacia abajo para actualizar (pull-to-refresh) ─────────
+// La app NO se actualiza sola al volver de otra app. Solo se actualiza
+// con el botón 🔄 o tirando hacia abajo estando arriba de todo.
+(function initPullToRefresh() {
+  const cont = document.getElementById('contenido');
+  const ind = document.getElementById('ptr-indicador');
+  if (!cont) return;
+  const UMBRAL = 70;
+  let startY = 0, tirando = false, dy = 0;
+
+  cont.addEventListener('touchstart', (e) => {
+    if (cont.scrollTop <= 0) { startY = e.touches[0].clientY; tirando = true; dy = 0; }
+    else tirando = false;
+  }, { passive: true });
+
+  cont.addEventListener('touchmove', (e) => {
+    if (!tirando) return;
+    dy = e.touches[0].clientY - startY;
+    if (dy > 0 && cont.scrollTop <= 0 && ind) {
+      ind.style.opacity = Math.min(dy / UMBRAL, 1);
+      ind.textContent = dy > UMBRAL ? '↻ Soltá para actualizar' : '↓ Tirá para actualizar';
+    }
+  }, { passive: true });
+
+  cont.addEventListener('touchend', () => {
+    if (!tirando) return;
+    if (ind) ind.style.opacity = 0;
+    if (dy > UMBRAL && cont.scrollTop <= 0) {
+      if (window.Sync?.estaConfigurado?.() && navigator.onLine) window.Datos?.refrescar?.();
+    }
+    tirando = false; dy = 0;
+  });
+})();
 
 // ── Botones del header ──────────────────────────────────────────
 
