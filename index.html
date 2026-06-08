@@ -43,7 +43,7 @@
   <main id="contenido">
 
     <!-- VISTA: Dashboard -->
-    <section id="vista-panel" class="vista activa">
+    <section id="vista-panel" class="vista">
       <div id="panel-contenido">
         <div class="card"><div class="estado-vacio">
           <span class="icono-grande">📊</span><p>Tocá 🔄 arriba para cargar los datos y ver tus métricas.</p>
@@ -52,7 +52,7 @@
     </section>
 
     <!-- VISTA: Nueva Venta -->
-    <section id="vista-venta" class="vista">
+    <section id="vista-venta" class="vista activa">
 
       <div class="card">
         <div class="card-titulo">Datos de la venta</div>
@@ -394,8 +394,8 @@
 
   <!-- ── Bottom Tab Bar ── -->
   <nav id="tab-bar">
-    <button class="tab activo" data-vista="panel"><span class="tab-icono">📊</span>Panel</button>
-    <button class="tab" data-vista="venta"><span class="tab-icono">🛒</span>Venta</button>
+    <button class="tab" data-vista="panel"><span class="tab-icono">📊</span>Panel</button>
+    <button class="tab activo" data-vista="venta"><span class="tab-icono">🛒</span>Venta</button>
     <button class="tab" data-vista="ventas"><span class="tab-icono">🧾</span>Editar</button>
     <button class="tab" data-vista="stock"><span class="tab-icono">📦</span>Stock</button>
     <button class="tab" data-vista="cobranzas"><span class="tab-icono">💰</span>Cobranzas</button>
