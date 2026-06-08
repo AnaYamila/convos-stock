@@ -46,57 +46,52 @@ async function importarStockDesdeSheets() {
     return;
   }
 
-  window.App?.mostrarToast('⬇ Importando STOCK...');
+  window.App?.mostrarToast('⬇ Importando stock desde el Maestro...');
 
   try {
-    const filas = await Sync.fetchFromSheets('STOCK');
+    // Lee la pestaña "Maestro de stock 2026" tal cual (array de arrays),
+    // respetando las posiciones de columna (R = stock inicial, T = pedidos, W = ventas).
+    const valores = await Sync.fetchRawFromSheets('MAESTRO DE STOCK 2026');
 
-    if (filas.length === 0) {
-      window.App?.mostrarToast('ℹ La hoja STOCK está vacía');
+    if (!valores || valores.length === 0) {
+      window.App?.mostrarToast('ℹ No se encontró la hoja "Maestro de stock 2026"');
       return;
     }
 
-    // Helpers para leer una columna sin importar mayúsculas/minúsculas
-    const txt = (f, k) => String(f[k] ?? f[k.toUpperCase()] ?? f[k.toLowerCase()] ?? '').trim();
-    const num = (f, k) => Number(f[k] ?? f[k.toUpperCase()] ?? f[k.toLowerCase()] ?? 0) || 0;
+    const mapeados = _mapearStock(valores);
+    if (mapeados.length === 0) {
+      window.App?.mostrarToast('ℹ No hay productos en el Maestro');
+      return;
+    }
 
-    // Convertir objetos de Sheets al formato interno del Maestro de Stock
-    const productos = filas
-      .filter(f => txt(f, 'codigoCorto') || txt(f, 'codigoCompleto') || txt(f, 'nombre'))
-      .map(f => ({
-        id:                      txt(f, 'id') || ('sheets_' + Date.now() + Math.random().toString(36).slice(2)),
-        codigoCorto:             txt(f, 'codigoCorto') || txt(f, 'nombre'),
-        codigoCompleto:          txt(f, 'codigoCompleto'),
-        familia:                 txt(f, 'familia') || txt(f, 'categoria'),
-        caracteristica:          txt(f, 'caracteristica'),
-        material:                txt(f, 'material'),
-        marca:                   txt(f, 'marca'),
-        articulo:                txt(f, 'articulo'),
-        talle:                   txt(f, 'talle'),
-        color:                   txt(f, 'color'),
-        proveedor:               txt(f, 'proveedor'),
-        costo:                   num(f, 'costo'),
-        costoConIva:             num(f, 'costoConIva'),
-        precio:                  num(f, 'precio'),
-        fechaActualizacionCosto: txt(f, 'fechaActualizacionCosto'),
-        stockInicial:            num(f, 'stockInicial') || num(f, 'stock'),
-        pedidos:                 num(f, 'pedidos'),
-        ajustes:                 num(f, 'ajustes'),
-        devoluciones:            num(f, 'devoluciones'),
-        ventas:                  num(f, 'ventas'),
-        stockConteo:             txt(f, 'stockConteo') === '' ? null : num(f, 'stockConteo'),
-        fechaConteo:             txt(f, 'fechaConteo'),
-        explicacionDiferencia:   txt(f, 'explicacionDiferencia'),
-      }));
+    // Conservar el id de productos ya existentes (mismo código corto)
+    const existentes = JSON.parse(localStorage.getItem('convos_productos') || '[]');
+    const porCodigo  = {};
+    existentes.forEach(p => { porCodigo[(p.codigoCorto || '').toLowerCase()] = p; });
 
-    localStorage.setItem('convos_productos', JSON.stringify(productos));
+    let nuevos = 0, actualizados = 0;
+    mapeados.forEach(prod => {
+      const clave = (prod.codigoCorto || '').toLowerCase();
+      const ex = porCodigo[clave];
+      if (ex) {
+        Object.assign(ex, prod, { id: ex.id });   // el Maestro es la fuente de verdad
+        actualizados++;
+      } else {
+        prod.id = 'sheets_' + _hash(clave + prod.codigoOriginal);
+        existentes.push(prod);
+        porCodigo[clave] = prod;
+        nuevos++;
+      }
+    });
+
+    localStorage.setItem('convos_productos', JSON.stringify(existentes));
 
     // Actualizar vistas
     typeof Stock !== 'undefined' && Stock.renderizarListaProductos();
     typeof Stock !== 'undefined' && Stock.renderizarMetricasInicio();
 
     renderizarEstadoImportar();
-    window.App?.mostrarToast(`✔ ${productos.length} productos importados`);
+    window.App?.mostrarToast(`✔ Maestro importado: ${nuevos} nuevos, ${actualizados} actualizados`);
   } catch (err) {
     window.App?.mostrarToast('❌ ' + (err.message || 'Error al importar'));
     console.error('[Importar]', err);
@@ -166,16 +161,16 @@ function _hash(str) {
   return Math.abs(h).toString(36);
 }
 
-// ── Generar código corto: marca + artículo + talle + color ──────
-// "Medias - Ciudadela - Art.4730 - T3 - Rojo" → "CIU-4730-T3-RJ"
+// ── Generar código corto / nombre único ─────────────────────────
+// El artículo se identifica con: Familia + Característica + Marca + Talle + Color
+// Ej: "Medias" · "3/4 caña" · "Ciudadela" · "T1" · "Rojo" → "MED-34C-CIU-T1-RJ"
 
-function _abrevMarca(m) {
-  return _S(m).replace(/[^a-zA-ZñÑáéíóúÁÉÍÓÚ]/g, '').slice(0, 3).toUpperCase();
+function _abrevTexto(v, n) {
+  return _S(v).replace(/[^a-zA-ZñÑáéíóúÁÉÍÓÚ0-9]/g, '').slice(0, n).toUpperCase();
 }
-function _abrevArticulo(a) {
-  const d = _S(a).match(/\d+/);
-  return d ? d[0] : _S(a).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-}
+function _abrevFamilia(f)  { return _abrevTexto(f, 3); }
+function _abrevCaract(c)   { return _abrevTexto(c, 3); }
+function _abrevMarca(m)    { return _abrevTexto(m, 3); }
 function _abrevTalle(t) {
   return _S(t).replace(/\s+/g, '').toUpperCase();
 }
@@ -187,9 +182,31 @@ function _abrevColor(c) {
   const cons    = resto.match(/[^aeiouAEIOUáéíóúÁÉÍÓÚ]/);
   return (primera + (cons ? cons[0] : (resto[0] || ''))).toUpperCase();
 }
-function _generarCodigoCorto(marca, articulo, talle, color) {
-  return [_abrevMarca(marca), _abrevArticulo(articulo), _abrevTalle(talle), _abrevColor(color)]
-    .filter(Boolean).join('-');
+
+// Código corto único e irrepetible.
+// Parte legible: Familia + Característica + Marca + Talle + Color.
+// Sufijo: hash de esos campos + el artículo, para garantizar unicidad incluso
+// cuando dos productos comparten los 5 campos pero tienen distinto artículo
+// (caso real en el Maestro: mismo color/talle/marca, diferente Nº de artículo).
+function _generarCodigoCorto(familia, caracteristica, marca, talle, color, articulo) {
+  const base = [
+    _abrevFamilia(familia),
+    _abrevCaract(caracteristica),
+    _abrevMarca(marca),
+    _abrevTalle(talle),
+    _abrevColor(color),
+  ].filter(Boolean).join('-');
+
+  const huella = [familia, caracteristica, marca, articulo, talle, color]
+    .map(_S).join(' | ').toLowerCase();
+  const sufijo = _hash(huella);
+
+  return base ? `${base}-${sufijo}` : sufijo;
+}
+
+// Nombre legible del artículo a partir de los 5 campos
+function _nombreArticulo(familia, caracteristica, marca, talle, color) {
+  return [familia, caracteristica, marca, talle, color].filter(Boolean).join(' - ');
 }
 
 // ── Lectura del archivo ─────────────────────────────────────────
@@ -229,36 +246,48 @@ function _filasDeHoja(tipo) {
 
 // ── Mapeo: MAESTRO DE STOCK (encabezado fila 5 = índice 4) ──────
 
+// Columnas (índice 0-based) en "Maestro de stock 2026":
+//  C(2)=código original · D(3)=familia · E(4)=característica · F(5)=material
+//  G(6)=marca · H(7)=artículo · I(8)=talle · J(9)=color · K(10)=proveedor
+//  M(12)=costo · N(13)=costo+IVA · P(15)=precio · Q(16)=fecha actualiz costo
+//  R(17)=stock inicial · T(19)=pedidos · U(20)=ajustes · V(21)=devoluciones
+//  W(22)=ventas (viene en negativo)
 function _mapearStock(filas) {
   const out = [];
-  for (let i = 4; i < filas.length; i++) {   // datos desde índice 5
-    if (i === 4) continue;                    // saltar fila de encabezado
+  for (let i = 5; i < filas.length; i++) {   // datos desde índice 5 (fila 6)
     const r = filas[i] || [];
-    const codigoCompleto = _S(r[2]);
-    if (!codigoCompleto) continue;            // fila vacía
 
-    const marca    = _S(r[6]);
-    const articulo = _S(r[7]);
-    const talle    = _S(r[8]);
-    const color    = _S(r[9]);
+    const familia        = _S(r[3]);
+    const caracteristica = _S(r[4]);
+    const material        = _S(r[5]);
+    const marca          = _S(r[6]);
+    const articulo       = _S(r[7]);
+    const talle          = _S(r[8]);
+    const color          = _S(r[9]);
+    const codigoOriginal = _S(r[2]);   // código tal como viene en la planilla
+
+    // Saltar filas sin datos identificatorios
+    if (!codigoOriginal && !familia && !marca) continue;
+
+    const nombre = _nombreArticulo(familia, caracteristica, marca, talle, color);
 
     out.push({
-      codigoCorto:             _generarCodigoCorto(marca, articulo, talle, color) || codigoCompleto.slice(0, 12),
-      codigoCompleto,
-      familia:                 _S(r[3]),
-      caracteristica:          _S(r[4]),
-      material:                _S(r[5]),
-      marca, articulo, talle, color,
+      // Identificación a partir de Familia + Característica + Marca + Talle + Color
+      codigoCorto:             _generarCodigoCorto(familia, caracteristica, marca, talle, color, articulo)
+                                 || (codigoOriginal || nombre).slice(0, 16),
+      codigoCompleto:          nombre || codigoOriginal,
+      codigoOriginal,          // se conserva para emparejar ventas
+      familia, caracteristica, material, marca, articulo, talle, color,
       proveedor:               _S(r[10]),
       costo:                   _N(r[12]),
-      costoConIva:             0,
+      costoConIva:             _N(r[13]),
       precio:                  _N(r[15]),
-      fechaActualizacionCosto: '',
-      stockInicial:            _N(r[17]),
-      pedidos:                 0,
-      ajustes:                 0,
-      devoluciones:            0,
-      ventas:                  Math.abs(_N(r[22])),   // viene negativo
+      fechaActualizacionCosto: _D(r[16]),
+      stockInicial:            _N(r[17]),          // columna R
+      pedidos:                 _N(r[19]),          // columna T
+      ajustes:                 _N(r[20]),          // columna U
+      devoluciones:            _N(r[21]),          // columna V
+      ventas:                  Math.abs(_N(r[22])),// columna W (viene negativo)
       stockConteo:             null,
       fechaConteo:             '',
       explicacionDiferencia:   '',
@@ -405,7 +434,12 @@ function _importarVentasExcel() {
   if (mapeados.length === 0) { window.App?.mostrarToast('ℹ No hay ventas para importar'); return; }
 
   const productos = typeof Stock !== 'undefined' ? Stock.obtenerProductos() : [];
-  const buscarProd = (codComp) => productos.find(p => (p.codigoCompleto || '').toLowerCase() === codComp.toLowerCase());
+  const buscarProd = (codComp) => {
+    const q = (codComp || '').toLowerCase();
+    return productos.find(p =>
+      (p.codigoOriginal || '').toLowerCase() === q ||
+      (p.codigoCompleto || '').toLowerCase() === q);
+  };
 
   const clientes   = JSON.parse(localStorage.getItem('convos_clientes') || '[]');
   const porNombre  = {};
@@ -463,6 +497,7 @@ function _importarVentasExcel() {
         fechaEntrega:   m.entregado ? (m.fecha || '') : '',
         costo,
         ganancia:       Number(m.ganancia) || (montoVenta - costo * cantidad),
+        confirmada:     true,   // las ventas históricas ya están confirmadas
         observaciones:  '',
         importadoExcel: true,
       };

@@ -1,15 +1,12 @@
 // ── Módulo Sync ─────────────────────────────────────────────────
-// Integración con Google Sheets vía Google Apps Script como middleware.
-// No requiere OAuth: el Apps Script actúa como proxy REST.
+// Capa fina de comunicación con Google Sheets a través de Apps Script.
+// La app NO calcula ni guarda datos propios: solo lee (readRaw) y
+// agrega ventas (agregarVenta). Toda la lógica vive en la planilla.
 
 const CLAVES_SYNC = {
   CONFIG: 'convos_sync_config',
-  COLA:   'convos_sync_cola',
-  ULTIMA: 'convos_ultima_sync',
+  COLA:   'convos_sync_cola',   // ventas pendientes de enviar (offline)
 };
-
-// Hojas soportadas en el Google Sheet
-const HOJAS_VALIDAS = ['CLIENTES', 'STOCK', 'VENTAS', 'COBRANZAS', 'ENTREGAS'];
 
 // ── Configuración ───────────────────────────────────────────────
 
@@ -27,316 +24,211 @@ function estaConfigurado() {
   return !!(c.appsScriptUrl && c.spreadsheetId);
 }
 
-// Guarda SPREADSHEET_ID y APPS_SCRIPT_URL en localStorage
 function setupConfig(spreadsheetId, appsScriptUrl) {
   if (!spreadsheetId?.trim() || !appsScriptUrl?.trim()) {
     throw new Error('Faltan spreadsheetId o appsScriptUrl');
   }
   guardarConfig({
-    spreadsheetId:  spreadsheetId.trim(),
-    appsScriptUrl:  appsScriptUrl.trim(),
-    fechaConfig:    new Date().toISOString(),
+    spreadsheetId: spreadsheetId.trim(),
+    appsScriptUrl: appsScriptUrl.trim(),
+    fechaConfig:   new Date().toISOString(),
   });
 }
 
-// ── Cola offline ────────────────────────────────────────────────
+// ── Lectura cruda (array de arrays) ─────────────────────────────
+// Se usa para Stock y VENTAS porque sus encabezados no están en la fila 1.
+
+async function fetchRawFromSheets(sheetName) {
+  const config = obtenerConfig();
+  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
+
+  const params = new URLSearchParams({
+    action:        'readRaw',
+    spreadsheetId: config.spreadsheetId,
+    sheet:         sheetName,
+  });
+
+  const resp = await fetch(`${config.appsScriptUrl}?${params}`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const json = await resp.json();
+  if (!json.ok) throw new Error(json.error || 'Error al leer');
+  return json.valores || [];
+}
+
+// ── Escritura: agregar una venta ────────────────────────────────
+
+async function agregarVentaEnSheets(venta) {
+  const config = obtenerConfig();
+  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
+
+  const payload = {
+    action:        'agregarVenta',
+    spreadsheetId: config.spreadsheetId,
+    venta,
+  };
+
+  // text/plain evita el preflight CORS de Apps Script
+  const resp = await fetch(config.appsScriptUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body:    JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const json = await resp.json();
+  if (!json.ok) throw new Error(json.error || 'Error al agregar la venta');
+  return json;
+}
+
+// ── Escritura: editar una venta existente ───────────────────────
+
+async function editarVentaEnSheets(fila, venta) {
+  const config = obtenerConfig();
+  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
+  if (!navigator.onLine) throw new Error('Necesitás conexión para editar una venta');
+
+  const payload = {
+    action:        'editarVenta',
+    spreadsheetId: config.spreadsheetId,
+    fila,
+    venta,
+  };
+  const resp = await fetch(config.appsScriptUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body:    JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const json = await resp.json();
+  if (!json.ok) throw new Error(json.error || 'Error al editar la venta');
+  return json;
+}
+
+// ── Cola offline de ventas ──────────────────────────────────────
 
 function obtenerCola() {
   try { return JSON.parse(localStorage.getItem(CLAVES_SYNC.COLA)) || []; }
   catch { return []; }
 }
-
 function _guardarCola(cola) {
   localStorage.setItem(CLAVES_SYNC.COLA, JSON.stringify(cola));
+  _actualizarBadgeCola();
 }
 
-function _encolarOperacion(op) {
+function encolarVenta(venta) {
   const cola = obtenerCola();
-  // Evitar duplicados exactos por ID de dato
-  if (op.idDato) {
-    const yaEnCola = cola.some(o => o.idDato === op.idDato && o.hoja === op.hoja);
-    if (yaEnCola) return;
-  }
-  cola.push({ ...op, timestamp: Date.now(), reintentos: 0 });
+  cola.push({ venta, timestamp: Date.now() });
   _guardarCola(cola);
 }
 
 async function procesarCola() {
-  const cola = obtenerCola();
+  let cola = obtenerCola();
   if (cola.length === 0) return;
-
   const pendientes = [];
   for (const op of cola) {
-    try {
-      if (op.tipo === 'write') {
-        await syncToSheets(op.hoja, op.datos, op.modo || 'append');
-      } else if (op.tipo === 'backup') {
-        await backupData();
-      }
-    } catch {
-      if ((op.reintentos || 0) < 3) {
-        pendientes.push({ ...op, reintentos: (op.reintentos || 0) + 1 });
-      }
-      // Más de 3 reintentos: se descarta silenciosamente
-    }
+    try { await agregarVentaEnSheets(op.venta); }
+    catch { pendientes.push(op); }
   }
   _guardarCola(pendientes);
-  _actualizarBadgeCola();
 }
 
-// ── Core: syncToSheets ──────────────────────────────────────────
-// Envía datos al Apps Script para escribir en el sheet.
-// modo 'append'    → agrega filas nuevas al final
-// modo 'overwrite' → reemplaza toda la hoja
-
-async function syncToSheets(sheetName, data, modo = 'append') {
-  const config = obtenerConfig();
-  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
-
-  const filas = Array.isArray(data) ? data : [data];
-  const payload = {
-    action:        modo === 'overwrite' ? 'overwrite' : 'write',
-    spreadsheetId: config.spreadsheetId,
-    sheet:         sheetName.toUpperCase(),
-    rows:          filas,
-  };
-
-  // Usamos Content-Type: text/plain para evitar el preflight CORS de Apps Script
-  const respuesta = await fetch(config.appsScriptUrl, {
-    method:  'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body:    JSON.stringify(payload),
-  });
-
-  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
-
-  const json = await respuesta.json();
-  if (!json.ok) throw new Error(json.error || 'Error en Apps Script');
-
-  _registrarSyncExitosa(filas.length);
-  return json;
-}
-
-// ── Core: fetchFromSheets ───────────────────────────────────────
-// Lee todos los registros de una hoja y los devuelve como array de objetos.
-
-async function fetchFromSheets(sheetName) {
-  const config = obtenerConfig();
-  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
-
-  const params = new URLSearchParams({
-    action:        'read',
-    spreadsheetId: config.spreadsheetId,
-    sheet:         sheetName.toUpperCase(),
-  });
-
-  const respuesta = await fetch(`${config.appsScriptUrl}?${params}`);
-  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
-
-  const json = await respuesta.json();
-  if (!json.ok) throw new Error(json.error || 'Error al leer');
-
-  return json.rows || [];
-}
-
-// ── Core: backupData ────────────────────────────────────────────
-// Hace un backup completo del localStorage al Google Sheet.
-// Cada módulo es dueño del formato de SU hoja y expone un
-// `sincronizarTodo()` que sobreescribe la hoja con el estado actual.
-// Así nunca hay desajuste de columnas entre lo que escribe el módulo
-// y lo que escribe el backup.
-
-async function backupData() {
-  const config = obtenerConfig();
-  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
-
-  const modulos = [
-    typeof Clientes  !== 'undefined' ? Clientes  : null,
-    typeof Stock     !== 'undefined' ? Stock     : null,
-    typeof Ventas    !== 'undefined' ? Ventas    : null,
-    typeof Cobranzas !== 'undefined' ? Cobranzas : null,
-    typeof Entregas  !== 'undefined' ? Entregas  : null,
-  ];
-
-  let algo = false;
-  for (const mod of modulos) {
-    if (mod && typeof mod.sincronizarTodo === 'function') {
-      await mod.sincronizarTodo();   // cada uno hace su overwrite
-      algo = true;
-    }
-  }
-
-  if (!algo) throw new Error('No hay módulos para respaldar');
-
-  _registrarSyncExitosa();
-  return { ok: true };
-}
-
-// ── Auto-sync: hook para los demás módulos ──────────────────────
-// Llamar desde stock.js, ventas.js, etc. cada vez que se guarda un dato.
-// Si está offline o sin config → encola para reintentar después.
-
-async function registrarCambio(hoja, datos, idDato = null) {
-  const op = { tipo: 'write', hoja, datos, modo: 'append', idDato };
-
-  if (!estaConfigurado() || !navigator.onLine) {
-    _encolarOperacion(op);
-    _actualizarBadgeCola();
-    return;
-  }
-
+// Registra una venta: si hay conexión la manda; si no, la encola.
+async function registrarVentaRemota(venta) {
+  if (!estaConfigurado()) throw new Error('Configurá la conexión con Google Sheets primero');
+  if (!navigator.onLine) { encolarVenta(venta); return { encolada: true }; }
   try {
-    await syncToSheets(hoja, datos, 'append');
-  } catch {
-    _encolarOperacion(op);
-    _actualizarBadgeCola();
-  }
-}
-
-// ── Helpers internos ────────────────────────────────────────────
-
-function _leerLocal(clave) {
-  try { return JSON.parse(localStorage.getItem(clave)) || []; }
-  catch { return []; }
-}
-
-function _registrarSyncExitosa(cantRegistros = 0) {
-  const ts = new Date().toISOString();
-  localStorage.setItem(CLAVES_SYNC.ULTIMA, ts);
-
-  const elUltima = document.getElementById('ultima-sync');
-  if (elUltima) elUltima.textContent = new Date(ts).toLocaleString('es-AR');
-
-  const elReg = document.getElementById('registros-importados');
-  if (elReg && cantRegistros > 0) elReg.textContent = cantRegistros;
-
-  const estadoSyncEl = document.getElementById('estado-sync');
-  if (estadoSyncEl && navigator.onLine) {
-    estadoSyncEl.textContent = '✔ Sync';
-    setTimeout(() => {
-      if (navigator.onLine) estadoSyncEl.textContent = 'Online';
-    }, 2000);
+    const r = await agregarVentaEnSheets(venta);
+    return r;
+  } catch (err) {
+    encolarVenta(venta);
+    throw err;
   }
 }
 
 function _actualizarBadgeCola() {
-  const pendientes = obtenerCola().length;
+  const n = obtenerCola().length;
   const badge = document.getElementById('badge-cola');
   if (!badge) return;
-  if (pendientes > 0) {
-    badge.textContent = pendientes;
-    badge.style.display = 'inline-flex';
-  } else {
-    badge.style.display = 'none';
-  }
+  badge.textContent = n;
+  badge.style.display = n > 0 ? 'inline-flex' : 'none';
 }
 
-// ── Reconexión automática ───────────────────────────────────────
-
+// Al reconectar, intenta vaciar la cola
 window.addEventListener('online', async () => {
-  const pendientes = obtenerCola().length;
-  if (pendientes === 0 || !estaConfigurado()) return;
-  window.App?.mostrarToast(`🔄 Sincronizando ${pendientes} cambio${pendientes > 1 ? 's' : ''} pendiente${pendientes > 1 ? 's' : ''}...`);
+  if (obtenerCola().length === 0 || !estaConfigurado()) return;
+  window.App?.mostrarToast('🔄 Enviando ventas pendientes...');
   await procesarCola();
   if (obtenerCola().length === 0) {
-    window.App?.mostrarToast('✔ Todo sincronizado');
+    window.App?.mostrarToast('✔ Ventas pendientes enviadas');
+    window.Datos?.refrescar?.();
   }
 });
 
-// ── Función global para el botón 🔄 del header ──────────────────
-
-async function sincronizarConSheets() {
-  if (!estaConfigurado()) {
-    mostrarPantallaConfig();
-    return;
-  }
-  if (!navigator.onLine) {
-    window.App?.mostrarToast('📶 Sin conexión — se sincronizará al reconectar');
-    return;
-  }
-  try {
-    window.App?.mostrarToast('🔄 Sincronizando...');
-    await procesarCola();
-    await backupData();
-    window.App?.mostrarToast('✔ Backup completo a Google Sheets');
-  } catch (err) {
-    window.App?.mostrarToast('❌ ' + (err.message || 'Error al sincronizar'));
-    console.error('[Sync]', err);
-  }
-}
-
-// ── Pantalla de configuración inicial ──────────────────────────
+// ── Pantalla de configuración ───────────────────────────────────
 
 function mostrarPantallaConfig() {
   document.getElementById('overlay-config')?.classList.add('visible');
 }
-
 function ocultarPantallaConfig() {
   document.getElementById('overlay-config')?.classList.remove('visible');
 }
 
 function _iniciarOverlayConfig() {
-  // Prellenar con config existente
   const config = obtenerConfig();
   const inputId  = document.getElementById('config-spreadsheet-id');
   const inputUrl = document.getElementById('config-apps-script-url');
-  if (inputId  && config.spreadsheetId)  inputId.value  = config.spreadsheetId;
-  if (inputUrl && config.appsScriptUrl)  inputUrl.value = config.appsScriptUrl;
+  if (inputId  && config.spreadsheetId) inputId.value  = config.spreadsheetId;
+  if (inputUrl && config.appsScriptUrl) inputUrl.value = config.appsScriptUrl;
 
-  // Mostrar automáticamente si no está configurado
-  if (!estaConfigurado()) setTimeout(mostrarPantallaConfig, 600);
+  if (!estaConfigurado()) setTimeout(mostrarPantallaConfig, 500);
 
-  // Botón guardar
   document.getElementById('btn-guardar-config')?.addEventListener('click', async () => {
     const id  = document.getElementById('config-spreadsheet-id')?.value.trim();
     const url = document.getElementById('config-apps-script-url')?.value.trim();
-
-    if (!id || !url) {
-      window.App?.mostrarToast('⚠ Completá los dos campos');
-      return;
-    }
+    if (!id || !url) { window.App?.mostrarToast('⚠ Completá los dos campos'); return; }
     if (!url.startsWith('https://script.google.com')) {
-      window.App?.mostrarToast('⚠ La URL debe ser de script.google.com');
-      return;
+      window.App?.mostrarToast('⚠ La URL debe ser de script.google.com'); return;
     }
 
     const btn = document.getElementById('btn-guardar-config');
-    const textoOriginal = btn.textContent;
-    btn.textContent = 'Probando conexión...';
-    btn.disabled = true;
-
+    const txt = btn.textContent;
+    btn.textContent = 'Probando conexión...'; btn.disabled = true;
     try {
       setupConfig(id, url);
-
-      // Test de conexión: intenta leer STOCK (puede estar vacío, no importa)
-      await fetchFromSheets('STOCK').catch(() => {});
-
+      await fetchRawFromSheets('Stock');   // test real de lectura
       ocultarPantallaConfig();
-      window.App?.mostrarToast('✔ Conexión guardada correctamente');
-      typeof Importar !== 'undefined' && Importar.renderizarEstadoImportar?.();
-
-      // Procesar cola pendiente si hay
-      setTimeout(procesarCola, 1000);
+      window.App?.mostrarToast('✔ Conectado a Google Sheets');
+      await window.Datos?.refrescar?.();
     } catch (err) {
       window.App?.mostrarToast('❌ No se pudo conectar — revisá los datos');
       console.error('[Config]', err);
     } finally {
-      btn.textContent = textoOriginal;
-      btn.disabled = false;
+      btn.textContent = txt; btn.disabled = false;
     }
   });
 
-  // Botón saltar
   document.getElementById('btn-saltar-config')?.addEventListener('click', ocultarPantallaConfig);
-
-  // Botón abrir desde la pestaña Importar
   document.getElementById('btn-abrir-config')?.addEventListener('click', mostrarPantallaConfig);
 
-  // Badge de cola al cargar
   _actualizarBadgeCola();
 }
 
 document.addEventListener('DOMContentLoaded', _iniciarOverlayConfig);
+
+// ── Botón 🔄 del header: refresca datos desde la planilla ───────
+
+async function sincronizarConSheets() {
+  if (!estaConfigurado()) { mostrarPantallaConfig(); return; }
+  if (!navigator.onLine) { window.App?.mostrarToast('📶 Sin conexión'); return; }
+  try {
+    window.App?.mostrarToast('🔄 Actualizando desde la planilla...');
+    await procesarCola();
+    await window.Datos?.refrescar?.();
+    window.App?.mostrarToast('✔ Datos actualizados');
+  } catch (err) {
+    window.App?.mostrarToast('❌ ' + (err.message || 'Error al actualizar'));
+    console.error('[Sync]', err);
+  }
+}
 
 // ── Exportar ────────────────────────────────────────────────────
 
@@ -345,13 +237,12 @@ window.Sync = {
   setupConfig,
   estaConfigurado,
   obtenerConfig,
-  syncToSheets,
-  fetchFromSheets,
-  backupData,
-  registrarCambio,
-  procesarCola,
+  fetchRawFromSheets,
+  agregarVentaEnSheets,
+  editarVentaEnSheets,
+  registrarVentaRemota,
   obtenerCola,
+  procesarCola,
   mostrarPantallaConfig,
   ocultarPantallaConfig,
-  HOJAS_VALIDAS,
 };

@@ -66,14 +66,17 @@ function registrarVenta(datos) {
     entregado:      datos.entregado === true,
     fechaEntrega:   datos.fechaEntrega || '',
     costo:          Number(datos.costo) || 0,
+    // La venta sólo descuenta del stock cuando está confirmada.
+    confirmada:     datos.confirmada !== false,   // por defecto confirmada
     observaciones:  datos.observaciones || '',
   });
 
   ventas.unshift(v);
   guardarVentas(ventas);
 
-  // Descontar stock del producto → esto a su vez sincroniza STOCK con Sheets
-  if (v.productoId && typeof Stock !== 'undefined') {
+  // Descontar stock del producto SOLO si la venta está confirmada.
+  // Esto a su vez sincroniza STOCK con Sheets.
+  if (v.productoId && v.confirmada && typeof Stock !== 'undefined') {
     Stock.actualizarVentaProducto(v.productoId, v.cantidad);
   }
 
@@ -85,8 +88,23 @@ function actualizarVenta(id, cambios) {
   const ventas = obtenerVentas();
   const idx = ventas.findIndex(v => v.id === id);
   if (idx === -1) return null;
-  ventas[idx] = _calcular({ ...ventas[idx], ...cambios });
+
+  // Estado previo para calcular el impacto en stock
+  const anterior        = ventas[idx];
+  const cantidadPrevia  = (anterior.confirmada !== false) ? (Number(anterior.cantidad) || 0) : 0;
+
+  ventas[idx] = _calcular({ ...anterior, ...cambios });
+  const nueva           = ventas[idx];
+  const cantidadNueva   = (nueva.confirmada !== false) ? (Number(nueva.cantidad) || 0) : 0;
+
   guardarVentas(ventas);
+
+  // Ajustar el stock por la diferencia (confirmar/desconfirmar o cambio de cantidad)
+  const delta = cantidadNueva - cantidadPrevia;
+  if (delta !== 0 && nueva.productoId && typeof Stock !== 'undefined') {
+    Stock.actualizarVentaProducto(nueva.productoId, delta);
+  }
+
   _sincronizarVentas();
   return ventas[idx];
 }
@@ -131,7 +149,7 @@ const _ENCABEZADOS_VENTAS = [
   'id', 'fecha', 'nombreCliente', 'codigoCompleto', 'codigoCorto', 'familia',
   'talle', 'color', 'precio', 'cantidad', 'descuento', 'montoVenta', 'cobrado',
   'tipoCobro', 'fechaCobro', 'saldoACobrar', 'preparado', 'entregado',
-  'fechaEntrega', 'costo', 'ganancia', 'observaciones',
+  'fechaEntrega', 'costo', 'ganancia', 'confirmada', 'observaciones',
 ];
 
 async function _sincronizarVentas() {
@@ -146,7 +164,8 @@ async function _sincronizarVentas() {
       Number(v.montoVenta) || 0, Number(v.cobrado) || 0, v.tipoCobro || '',
       v.fechaCobro || '', Number(v.saldoACobrar) || 0,
       v.preparado ? 'Sí' : 'No', v.entregado ? 'Sí' : 'No', v.fechaEntrega || '',
-      Number(v.costo) || 0, Number(v.ganancia) || 0, v.observaciones || '',
+      Number(v.costo) || 0, Number(v.ganancia) || 0,
+      (v.confirmada !== false) ? 'Sí' : 'No', v.observaciones || '',
     ]),
   ];
 
@@ -294,6 +313,7 @@ function _leerFormulario() {
     tipoCobro:   document.getElementById('venta-tipo-cobro')?.value || 'efectivo',
     fechaCobro:  cobradoTog ? (document.getElementById('venta-fecha-cobro')?.value || new Date().toISOString().split('T')[0]) : '',
     entregado:   document.getElementById('venta-entregado')?.checked === true,
+    confirmada:  document.getElementById('venta-confirmada') ? document.getElementById('venta-confirmada').checked : true,
     nombreCliente: document.getElementById('venta-cliente')?.value.trim() || 'Sin cliente',
     observaciones: document.getElementById('venta-observaciones')?.value.trim() || '',
   };
@@ -364,12 +384,15 @@ function _confirmarVenta() {
     entregado:      f.entregado,
     fechaEntrega:   f.entregado ? new Date().toISOString() : '',
     costo:          f.costo,
+    confirmada:     f.confirmada,
     observaciones:  f.observaciones,
   });
 
   _resetFormulario();
   _refrescarTodo();
-  window.App?.mostrarToast('✔ Venta registrada · stock actualizado');
+  window.App?.mostrarToast(f.confirmada
+    ? '✔ Venta registrada · stock actualizado'
+    : '✔ Venta registrada (sin confirmar · no descuenta stock)');
 }
 
 function _resetFormulario() {
@@ -379,6 +402,7 @@ function _resetFormulario() {
   const cant = document.getElementById('venta-cantidad'); if (cant) cant.value = '1';
   const cob  = document.getElementById('venta-cobrado');  if (cob)  cob.checked = false;
   const ent  = document.getElementById('venta-entregado'); if (ent) ent.checked = false;
+  const conf = document.getElementById('venta-confirmada'); if (conf) conf.checked = true;
   _renderInfoProducto();
   _recalcularResumen();
 }
@@ -422,11 +446,14 @@ function renderizarListaVentas() {
     const badgeEnt = v.entregado
       ? `<span class="badge badge-ok">Entregado</span>`
       : `<span class="badge badge-pend">Por entregar</span>`;
+    const badgeConf = (v.confirmada === false)
+      ? `<span class="badge badge-deuda">Sin confirmar</span>`
+      : '';
     return `<li class="item-venta" data-id="${_esc(v.id)}">
       <div class="item-venta-main">
         <div class="item-nombre">${_esc(v.nombreCliente || 'Sin cliente')}</div>
         <div class="item-detalle">${_esc(v.codigoCorto || v.codigoCompleto)} · ${v.cantidad} u · ${_fmtFecha(v.fecha)}</div>
-        <div class="item-badges">${badgeCobro} ${badgeEnt}</div>
+        <div class="item-badges">${badgeCobro} ${badgeEnt} ${badgeConf}</div>
       </div>
       <span class="negrita">${_fmtMoneda(v.montoVenta)}</span>
     </li>`;
@@ -473,6 +500,10 @@ function _mostrarDetalle(id) {
   const entChk = document.getElementById('vdet-entregado');
   if (entChk) entChk.checked = v.entregado === true;
 
+  // Estado confirmación (afecta el stock)
+  const confChk = document.getElementById('vdet-confirmada');
+  if (confChk) confChk.checked = v.confirmada !== false;
+
   _irVentas('detalle');
 }
 
@@ -484,6 +515,8 @@ function _guardarDetalle() {
   const cobrarTodo = document.getElementById('vdet-cobrado')?.checked;
   const tipoCobro  = document.getElementById('vdet-tipo-cobro')?.value || v.tipoCobro;
   const entregado  = document.getElementById('vdet-entregado')?.checked === true;
+  const confChk    = document.getElementById('vdet-confirmada');
+  const confirmada = confChk ? confChk.checked : (v.confirmada !== false);
 
   const cambios = {
     tipoCobro,
@@ -491,6 +524,7 @@ function _guardarDetalle() {
     fechaCobro:   cobrarTodo ? (v.fechaCobro || new Date().toISOString().split('T')[0]) : v.fechaCobro,
     entregado,
     fechaEntrega: entregado ? (v.fechaEntrega || new Date().toISOString()) : '',
+    confirmada,
   };
 
   actualizarVenta(_ventaDetId, cambios);

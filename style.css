@@ -1580,3 +1580,188 @@ html, body {
   border-radius: 50%;
 }
 #ptr-indicador.listo .ptr-spinner { animation: _exGirar .8s linear infinite; }
+
+/* ════════════════════════════════════════════════════════════════
+   NUEVA ESTRUCTURA · combos en cascada, venta, stock, cobranzas
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── Combo facetado (desplegable con type-ahead) ── */
+.campo.combo { position: relative; }
+.combo-input { width: 100%; }
+.combo-list {
+  position: absolute;
+  z-index: 40;
+  left: 0; right: 0;
+  top: 100%;
+  margin-top: 2px;
+  background: #fff;
+  border: 1.5px solid var(--borde);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(2, 32, 71, .16);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.combo-op {
+  padding: 12px 14px;
+  font-size: .95rem;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+}
+.combo-op:last-child { border-bottom: none; }
+.combo-op:active, .combo-op:hover { background: #e0f2fe; }
+.combo-vacio { padding: 12px 14px; color: var(--texto-suave); font-size: .9rem; }
+
+/* ── Info del producto en Nueva venta ── */
+.nv-info {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+}
+.nv-info.alerta { background: #fef2f2; border-color: #fecaca; color: #991b1b; font-weight: 600; }
+.nv-info-grid { display: flex; align-items: center; gap: 16px; }
+.nv-disp { display: flex; flex-direction: column; align-items: center; min-width: 90px; }
+.nv-disp-num { font-size: 2rem; font-weight: 900; line-height: 1; }
+.nv-disp-cap { font-size: .72rem; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .04em; }
+.nv-disp.ok   .nv-disp-num { color: var(--verde); }
+.nv-disp.bajo .nv-disp-num { color: var(--naranja); }
+.nv-disp.cero .nv-disp-num,
+.nv-disp.neg  .nv-disp-num { color: var(--rojo); }
+.nv-info-datos { flex: 1; }
+.nv-cod { font-weight: 700; font-size: .95rem; margin-bottom: 4px; }
+
+/* ── Lista de Stock (consulta) ── */
+.item-stock {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 4px;
+}
+.item-stock-data { flex: 1; min-width: 0; }
+.item-stock-fam { font-weight: 700; font-size: .98rem; }
+.item-stock-meta { font-size: .82rem; color: var(--texto-suave); margin-top: 2px; }
+.item-stock-disp { display: flex; flex-direction: column; align-items: center; min-width: 66px; }
+.item-stock-disp .num { font-size: 1.4rem; font-weight: 900; line-height: 1; }
+.item-stock-disp .cap { font-size: .68rem; color: var(--texto-suave); }
+.item-stock-disp.ok   .num { color: var(--verde); }
+.item-stock-disp.bajo .num { color: var(--naranja); }
+.item-stock-disp.cero .num { color: var(--rojo); }
+.item-stock-disp.neg  .num { color: #fff; background: var(--rojo); padding: 2px 10px; border-radius: 10px; }
+
+/* ── Cobranzas ── */
+.item-cobranza {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 4px; cursor: pointer;
+}
+.item-cobranza-det { padding: 0 4px 10px; }
+.sublista { list-style: none; margin: 0; padding: 6px 10px; background: #f8fafc; border-radius: 10px; }
+.sublista li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: .85rem; border-bottom: 1px solid #eef2f7; }
+.sublista li:last-child { border-bottom: none; }
+.negrita { font-weight: 800; }
+
+/* ── Entregas ── */
+.item-entrega {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; padding: 12px 4px;
+}
+.item-entrega .item-detalle { font-size: .82rem; color: var(--texto-suave); margin-top: 2px; }
+.badge-prep { background: #fef9c3; color: #854d0e; }
+.badge-pend { background: #ffedd5; color: #9a3412; }
+
+/* ── Carrito de venta (multi-producto) ── */
+.carrito {
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+  border-radius: var(--radio);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.carrito-titulo { font-size: .8rem; font-weight: 800; color: var(--azul-oscuro); margin-bottom: 8px; }
+.carrito-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #dbeafe; }
+.carrito-item:last-child { border-bottom: none; }
+.carrito-cod { font-weight: 700; font-size: .9rem; }
+.carrito-meta { font-size: .8rem; color: var(--texto-suave); }
+.carrito-quitar {
+  background: #fee2e2; color: #991b1b; border: none; border-radius: 8px;
+  width: 32px; height: 32px; font-size: 1rem; font-weight: 700; cursor: pointer; flex-shrink: 0;
+}
+
+/* ── Botón entregar + layout entregas ── */
+.item-entrega-info { flex: 1; min-width: 0; }
+.item-entrega-accion { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.btn-entregar {
+  background: var(--verde); color: #fff; border: none; border-radius: 10px;
+  padding: 8px 12px; font-size: .82rem; font-weight: 700; cursor: pointer; min-height: 36px;
+}
+.btn-entregar:disabled { opacity: .6; }
+/* opción "crear cliente" en el autocompletar */
+.combo-crear { color: var(--azul-oscuro); font-weight: 700; border-top: 1px solid #e2e8f0; }
+
+/* ── Total de la venta ── */
+.nv-total {
+  background: #ecfdf5;
+  border: 1.5px solid #6ee7b7;
+  color: #065f46;
+  border-radius: var(--radio);
+  padding: 14px 16px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+/* ── Detalle de cobros (historial) ── */
+#ed-cobro-detalle { margin: 6px 0 8px; }
+.cobro-det-tit { font-size: .78rem; font-weight: 800; color: var(--azul-oscuro); margin-bottom: 4px; }
+.cobro-det-item { font-size: .86rem; color: var(--texto); padding: 3px 0 3px 4px; border-left: 3px solid #6ee7b7; margin-bottom: 3px; }
+
+/* ── Dashboard ── */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.dash-tile {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra-card);
+  padding: 12px;
+  text-align: center;
+}
+.dash-tile .dash-ico { font-size: 1.3rem; line-height: 1; }
+.dash-tile .dash-val { font-size: 1.25rem; font-weight: 900; margin: 4px 0 2px; color: var(--texto); }
+.dash-tile .dash-lbl { font-size: .72rem; color: var(--texto-suave); font-weight: 600; }
+.dash-tile.verde   .dash-val { color: var(--verde); }
+.dash-tile.rojo    .dash-val { color: var(--rojo); }
+.dash-tile.naranja .dash-val { color: var(--naranja); }
+.dash-tile.azul    .dash-val { color: var(--azul); }
+
+/* 6 pestañas: un poco más compactas */
+#tab-bar .tab { font-size: .58rem; }
+#tab-bar .tab .tab-icono { font-size: 1.3rem; }
+
+/* Tarjetas del panel que son links */
+.dash-tile.dash-link { cursor: pointer; transition: transform .1s, box-shadow .1s; }
+.dash-tile.dash-link:active { transform: scale(.97); }
+.dash-tile.dash-link .dash-lbl { color: var(--azul-oscuro); }
+
+/* ── Logo de marca en el header ── */
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand-logo {
+  width: 38px; height: 38px; border-radius: 9px;
+  background: #fff; object-fit: contain; padding: 2px; flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
+}
+.brand-text {
+  display: flex; flex-direction: column; line-height: 1.05;
+  color: #fff; font-weight: 800; font-size: 1.05rem;
+}
+.brand-text small { font-size: .6rem; font-weight: 600; opacity: .92; letter-spacing: .03em; }
+
+/* ── Botón Preparar (entregas) ── */
+.btn-preparar {
+  background: #fef9c3; color: #854d0e; border: none; border-radius: 10px;
+  padding: 8px 12px; font-size: .82rem; font-weight: 700; cursor: pointer; min-height: 36px;
+}
+.btn-preparar:disabled { opacity: .6; }
