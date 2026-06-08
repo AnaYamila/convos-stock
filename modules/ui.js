@@ -164,6 +164,7 @@ function _limpiarProductoVenta() {
   _grupoVenta?.refrescarInputs();
   const cant = document.getElementById('nv-cantidad'); if (cant) cant.value = '';
   const desc = document.getElementById('nv-descuentos'); if (desc) desc.value = '';
+  const rec  = document.getElementById('nv-recargos'); if (rec) rec.value = '';
   const conf = document.getElementById('nv-confirmado'); if (conf) conf.value = 'si';
   _infoVenta();
 }
@@ -201,6 +202,10 @@ function _leerProductoDe(prefijo, sel) {
   if (!algun && !cant) return { vacio: true };
   const completo = window.Datos.CAMPOS_CASCADA.every(c => sel[c]) && cant > 0 && !!window.Datos.productoExacto(sel);
   const p = completo ? window.Datos.productoExacto(sel) : null;
+  // Descuento resta, recargo suma → neto que va a la columna "Descuentos"
+  const desc = parseFloat(document.getElementById(`${prefijo}-descuentos`)?.value) || 0;
+  const rec  = parseFloat(document.getElementById(`${prefijo}-recargos`)?.value) || 0;
+  const ajuste = rec - desc;
   return {
     vacio: false,
     completo,
@@ -209,7 +214,7 @@ function _leerProductoDe(prefijo, sel) {
       talle: sel.talle, color: sel.color,
       cantidad: cant || '',
       confirmado: document.getElementById(`${prefijo}-confirmado`)?.value || 'no',
-      descuentos: parseFloat(document.getElementById(`${prefijo}-descuentos`)?.value) || '',
+      descuentos: ajuste || '',
       codigo: p ? p.codigo : [sel.familia, sel.marca, sel.caracteristica, sel.talle, sel.color].filter(Boolean).join(' - '),
       precio: p ? p.precio : 0,
     },
@@ -354,7 +359,7 @@ function _initVenta() {
   _grupoVenta = _montarComboGrupo('nv', _selVenta, _onVentaCambio);
   _montarComboCliente();
   _resetVenta();
-  ['nv-cantidad', 'nv-descuentos'].forEach(id =>
+  ['nv-cantidad', 'nv-descuentos', 'nv-recargos'].forEach(id =>
     document.getElementById(id)?.addEventListener('input', _onVentaCambio));
   document.getElementById('btn-agregar-producto')?.addEventListener('click', _agregarAlCarrito);
   document.getElementById('btn-registrar-venta')?.addEventListener('click', _registrarVenta);
@@ -699,7 +704,10 @@ function _abrirEdit(fila) {
   set('ed-cliente', v.cliente || '');
   set('ed-cantidad', v.cantidad || '');
   set('ed-confirmado', v.confirmado ? 'si' : 'no');
-  set('ed-descuentos', v._descuentos || '');
+  // El neto guardado en "Descuentos" (col M) se separa: negativo = descuento, positivo = recargo
+  const ajuste = Number(v._descuentos) || 0;
+  set('ed-descuentos', ajuste < 0 ? -ajuste : '');
+  set('ed-recargos', ajuste > 0 ? ajuste : '');
   const cobroSel = (Number(v._cobrado) > 0)
     ? ((v.tipoCobro || '').toLowerCase().includes('mp') ? 'MP' : 'efectivo')
     : 'no';
@@ -745,6 +753,7 @@ function _limpiarProductoEdit() {
   _grupoEdit?.refrescarInputs();
   const cant = document.getElementById('ed-cantidad'); if (cant) cant.value = '';
   const desc = document.getElementById('ed-descuentos'); if (desc) desc.value = '';
+  const rec  = document.getElementById('ed-recargos'); if (rec) rec.value = '';
   const conf = document.getElementById('ed-confirmado'); if (conf) conf.value = 'si';
   _infoEdit();
 }
