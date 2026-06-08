@@ -53,6 +53,12 @@ function doPost(e) {
         var filaEditada = _editarVenta(ss, body.fila, body.venta);
         return _jsonOk({ accion: body.action, fila: filaEditada });
 
+      case 'borrarVenta':
+        // Vacía los datos de una venta (deja la fila libre para reusar),
+        // conservando las fórmulas.
+        var filaBorrada = _borrarVenta(ss, body.fila);
+        return _jsonOk({ accion: body.action, fila: filaBorrada });
+
       default:
         throw new Error('Acción desconocida: ' + body.action);
     }
@@ -235,6 +241,18 @@ function _agregarVenta(ss, venta) {
   // Asegurar que la fila tenga las fórmulas (por si se pasó del rango precargado)
   _asegurarFormulas(hoja, fila);
 
+  return fila;
+}
+
+// Vacía los datos editables de una fila (la "borra"), conservando las
+// fórmulas. La fila queda libre y la reutiliza la próxima venta.
+function _borrarVenta(ss, fila) {
+  if (!fila || fila < _FILA_DATOS_INICIO) throw new Error('Fila inválida');
+  var hoja = _buscarHoja(ss, 'VENTAS');
+  if (!hoja) throw new Error('No existe la pestaña VENTAS');
+  for (var campo in _COLS_VENTA) {
+    hoja.getRange(fila, _COLS_VENTA[campo]).clearContent();
+  }
   return fila;
 }
 

@@ -427,6 +427,12 @@ async function marcarEntregada(fila) {
   await refrescar();
 }
 
+// Borra (vacía) una venta u oportunidad de la planilla
+async function borrarVenta(fila) {
+  await Sync.borrarVentaEnSheets(fila);
+  await refrescar();
+}
+
 // Marca una línea como preparada (conserva el resto de los datos)
 async function marcarPreparada(fila) {
   const v = ventaPorFila(fila);
@@ -542,6 +548,7 @@ window.Datos = {
   registrarVenta,
   registrarVentas,
   editarVenta,
+  borrarVenta,
   marcarEntregada,
   marcarPreparada,
   imputarPagoCliente,

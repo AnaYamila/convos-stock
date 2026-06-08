@@ -103,6 +103,25 @@ async function editarVentaEnSheets(fila, venta) {
   return json;
 }
 
+// ── Borrar una venta ────────────────────────────────────────────
+
+async function borrarVentaEnSheets(fila) {
+  const config = obtenerConfig();
+  if (!config.appsScriptUrl) throw new Error('Apps Script no configurado');
+  if (!navigator.onLine) throw new Error('Necesitás conexión para borrar una venta');
+
+  const payload = { action: 'borrarVenta', spreadsheetId: config.spreadsheetId, fila };
+  const resp = await fetch(config.appsScriptUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body:    JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const json = await resp.json();
+  if (!json.ok) throw new Error(json.error || 'Error al borrar la venta');
+  return json;
+}
+
 // ── Cola offline de ventas ──────────────────────────────────────
 
 function obtenerCola() {
@@ -240,6 +259,7 @@ window.Sync = {
   fetchRawFromSheets,
   agregarVentaEnSheets,
   editarVentaEnSheets,
+  borrarVentaEnSheets,
   registrarVentaRemota,
   obtenerCola,
   procesarCola,

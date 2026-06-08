@@ -650,9 +650,11 @@ function renderVentas() {
       </li>`;
     }
     let bCobro;
-    if (v._cobrado <= 0)        bCobro = `<span class="badge badge-pend">Sin cobrar</span>`;
-    else if (v.saldo > 0.001)   bCobro = `<span class="badge badge-deuda">Pagó ${_money(v._cobrado)} · debe ${_money(v.saldo)}</span>`;
-    else                        bCobro = `<span class="badge badge-ok">Cobrado ${_money(v._cobrado)}</span>`;
+    if (v.saldo <= 0.001)       bCobro = v.monto <= 0
+                                  ? `<span class="badge badge-ok">Saldado</span>`
+                                  : `<span class="badge badge-ok">Cobrado ${_money(v._cobrado)}</span>`;
+    else if (v._cobrado > 0)    bCobro = `<span class="badge badge-deuda">Pagó ${_money(v._cobrado)} · debe ${_money(v.saldo)}</span>`;
+    else                        bCobro = `<span class="badge badge-pend">Sin cobrar</span>`;
     const bEnt = v.entregado ? `<span class="badge badge-ok">Entregado</span>` : `<span class="badge badge-pend">Por entregar</span>`;
     return `<li class="item-venta" data-fila="${v.fila}">
       <div class="item-venta-main">
@@ -717,9 +719,13 @@ function _abrirEdit(fila) {
 
   const infoCobro = document.getElementById('ed-cobro-info');
   if (infoCobro) {
-    infoCobro.textContent = (Number(v._cobrado) > 0)
-      ? `Cobrado hasta ahora: ${_money(v._cobrado)}${v.saldo > 0.001 ? ' · Falta: ' + _money(v.saldo) : ' (saldado)'}`
-      : 'Sin cobros registrados';
+    if (v.saldo <= 0.001 && v.monto <= 0) {
+      infoCobro.textContent = 'Venta sin saldo (descuento total) — nada que cobrar';
+    } else if (Number(v._cobrado) > 0) {
+      infoCobro.textContent = `Cobrado hasta ahora: ${_money(v._cobrado)}${v.saldo > 0.001 ? ' · Falta: ' + _money(v.saldo) : ' (saldado)'}`;
+    } else {
+      infoCobro.textContent = 'Sin cobros registrados';
+    }
   }
 
   const det = document.getElementById('ed-cobro-detalle');
@@ -895,6 +901,16 @@ function _initEdit() {
   document.getElementById('btn-guardar-edit')?.addEventListener('click', _guardarEdit);
   document.getElementById('btn-volver-edit')?.addEventListener('click', () => { _verPanelEdit('lista'); renderVentas(); });
   document.getElementById('btn-agregar-producto-edit')?.addEventListener('click', _agregarAlCarritoEdit);
+  document.getElementById('btn-borrar-venta')?.addEventListener('click', () => {
+    if (_filaEdit == null) return;
+    if (!confirm('¿Borrar esta venta/oportunidad? Esta acción no se puede deshacer.')) return;
+    const btn = document.getElementById('btn-borrar-venta');
+    if (btn) { btn.disabled = true; btn.textContent = 'Borrando...'; }
+    window.Datos.borrarVenta(_filaEdit)
+      .then(() => { _toast('🗑 Eliminada'); _carritoEdit = []; _verPanelEdit('lista'); renderVentas(); })
+      .catch(e => _toast('❌ ' + (e.message || 'No se pudo borrar')))
+      .finally(() => { if (btn) { btn.disabled = false; btn.textContent = '🗑 Borrar venta'; } });
+  });
   document.getElementById('ed-tab-ventas')?.addEventListener('click', () => _setEdTab('ventas'));
   document.getElementById('ed-tab-oport')?.addEventListener('click', () => _setEdTab('oportunidades'));
   _verPanelEdit('lista');
